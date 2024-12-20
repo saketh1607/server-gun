@@ -113,7 +113,7 @@ class GameServer {
 
         console.log(`Distance: ${distance}, Angle Difference: ${angleDiff}`);
 
-        return distance < 10 && angleDiff < 15; // Example hit criteria
+        return distance < 10 && angleDiff < 360; // Example hit criteria
     }
 
     handleHit(shooter, target) {
