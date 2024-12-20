@@ -65,35 +65,42 @@ class GameServer {
         }
     }
     updatePlayerState(data) {
-        if (this.players[data.id]) {
-            Object.assign(this.players[data.id], {
-                lat: data.lat,
-                lon: data.lon,
-                azimuth: data.azimuth,
-                health: data.health
-            });
-            this.broadcastGameState();
-        }
-    }
-
-    handleShoot(data) {
-        this.updatePlayerState(data);
-        const shooter = this.players[data.shooter];
-        if (!shooter) return;
-        // Update shooter location and azimuth at the moment of shooting
-        // shooter.lat = data.lat;
-        // shooter.lon = data.lon;
-        // shooter.azimuth = data.azimuth;
-
-        console.log(`Shooter ${shooter.id} fired at lat: ${shooter.lat}, lon: ${shooter.lon}, azimuth: ${shooter.azimuth}`);
-
-        // Check for hits on other players
-        Object.values(this.players).forEach(target => {
-            if (target.id !== shooter.id && this.checkHit(shooter, target)) {
-                this.handleHit(shooter, target);
-            }
+    const playerId = data.id || data.shooter;
+    if (this.players[playerId]) {
+        Object.assign(this.players[playerId], {
+            lat: data.lat,
+            lon: data.lon,
+            azimuth: data.azimuth,
+            health: data.health
         });
+        this.broadcastGameState();
     }
+}
+
+
+  handleShoot(data) {
+    if (!data.lat || !data.lon || data.azimuth == null) {
+        console.warn('Invalid shoot data received:', data);
+        return;
+    }
+
+    this.updatePlayerState(data);
+
+    const shooter = this.players[data.shooter];
+    if (!shooter) {
+        console.warn(`Shooter with ID ${data.shooter} not found.`);
+        return;
+    }
+
+    console.log(`Shooter ${shooter.id} fired at lat: ${shooter.lat}, lon: ${shooter.lon}, azimuth: ${shooter.azimuth}`);
+
+    Object.values(this.players).forEach(target => {
+        if (target.id !== shooter.id && this.checkHit(shooter, target)) {
+            this.handleHit(shooter, target);
+        }
+    });
+}
+
 
     checkHit(shooter, target) {
         if (!shooter.lat || !shooter.lon || !target.lat || !target.lon) {
