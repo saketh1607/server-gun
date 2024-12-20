@@ -77,9 +77,9 @@ class GameServer {
     }
 
     handleShoot(data) {
+        this.updatePlayerState(data);
         const shooter = this.players[data.shooter];
         if (!shooter) return;
-        this.updatePlayerState(data);
         // Update shooter location and azimuth at the moment of shooting
         // shooter.lat = data.lat;
         // shooter.lon = data.lon;
