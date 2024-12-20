@@ -11,7 +11,7 @@ class GameServer {
         this.setupServerEvents();
         this.startGameLoop();
         
-        console.log(Game server running on port ${port});
+        console.log("Game server running on port ${port}");
     }
 
     setupServerEvents() {
