@@ -137,42 +137,42 @@ class GameServer {
     }
     
     handleHit(shooter, target) {
-        console.log(`Handling hit: Shooter ${shooter} -> Target ${target}`);
-    
+        console.log(`Handling hit: Shooter ${shooter.id} -> Target ${target.id}`);
+        
         // Ensure both shooter and target exist
-        if (!this.players[shooter] || !this.players[target]) {
+        if (!this.players[shooter.id] || !this.players[target.id]) {
             console.log('Shooter or target does not exist');
             return;
         }
-    
+        
         // Reduce target's health
-        this.players[target].health -= 10;
-        console.log(`Target ${target} health: ${this.players[target].health}`);
-    
+        this.players[target.id].health -= 10;
+        console.log(`Target ${target.id} health: ${this.players[target.id].health}`);
+        
         // Check if target is eliminated
-        if (this.players[target].health <= 0) {
-            console.log(`Player ${target} eliminated by ${shooter}`);
-            this.players[target].health = 0;
-            this.players[target].isEliminated = true;
-    
+        if (this.players[target.id].health <= 0) {
+            console.log(`Player ${target.id} eliminated by ${shooter.id}`);
+            this.players[target.id].health = 0;
+            this.players[target.id].isEliminated = true;
+        
             // Update shooter's score and kills
-            this.players[shooter].score += 100;
-            this.players[shooter].kills += 1;
+            this.players[shooter.id].score += 100;
+            this.players[shooter.id].kills += 1;
         }
-    
+        
         // Broadcast the hit to all clients
         const hitMessage = {
             type: 'hit',
-            shooter: shooter,
-            target: target,
-            health: this.players[target].health
+            shooter: shooter.id,
+            target: target.id,
+            health: this.players[target.id].health
         };
         this.server.clients.forEach(client => {
             if (client.readyState === WebSocket.OPEN) {
                 client.send(JSON.stringify(hitMessage));
             }
         });
-    
+        
         // Broadcast updated game state
         this.broadcastGameState();
     }
