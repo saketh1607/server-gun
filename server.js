@@ -4,16 +4,20 @@ class GameServer {
     constructor(port) {
         this.server = new WebSocket.Server({ port: port });
         this.players = {};
+        this.powerups = [];
         this.matchInProgress = false;
-
+        this.matchDuration = 300; // 5 minutes
+        
         this.setupServerEvents();
-        console.log(`Game server running on port ${port}`);
+        this.startGameLoop();
+        
+        console.log(Game server running on port ${port});
     }
 
     setupServerEvents() {
         this.server.on('connection', (socket) => {
             console.log('New client connected');
-
+            
             socket.on('message', (message) => {
                 try {
                     const data = JSON.parse(message);
@@ -30,9 +34,13 @@ class GameServer {
     }
 
     handlePlayerMessage(socket, data) {
+        console.log('Message received:', data);
         switch (data.type) {
             case 'register':
                 this.registerPlayer(socket, data);
+                break;
+            case 'update':
+                this.updatePlayerState(data);
                 break;
             case 'shoot':
                 this.handleShoot(data);
@@ -42,9 +50,9 @@ class GameServer {
 
     registerPlayer(socket, data) {
         const playerId = data.id;
-        console.log(`Registering player with ID: ${playerId}`);
+        console.log(Registering player with ID: ${playerId});
         socket.playerId = playerId;
-
+        
         this.players[playerId] = {
             id: playerId,
             socket: socket,
@@ -56,98 +64,132 @@ class GameServer {
             kills: 0
         };
         console.log('Players after registration:', this.players);
+        this.broadcastGameState();
+    }
+
+    updatePlayerState(data) {
+        if (this.players[data.id]) {
+            Object.assign(this.players[data.id], {
+                lat: data.lat,
+                lon: data.lon,
+                azimuth: data.azimuth,
+                health: data.health
+            });
+            this.broadcastGameState();
+        }
     }
 
     handlePlayerDisconnect(socket) {
         if (socket.playerId && this.players[socket.playerId]) {
             console.log('Player disconnected:', socket.playerId);
             delete this.players[socket.playerId];
+            this.broadcastGameState();
         }
     }
-    updatePlayerState(data) {
-    const playerId = data.id || data.shooter;
-    if (this.players[playerId]) {
-        Object.assign(this.players[playerId], {
-            lat: data.lat,
-            lon: data.lon,
-            azimuth: data.azimuth,
-            health: data.health
+
+    handleShoot(data) {
+        const shooter = this.players[data.shooter];
+        if (!shooter) return;
+        // Check for hits on other players
+        Object.values(this.players).forEach(target => {
+            if (target.id !== shooter.id) {
+                if (this.checkHit(shooter, target)) {
+                    this.handleHit(shooter, target);
+                }
+            }
         });
-        this.broadcastGameState();
     }
-}
-
-
-  handleShoot(data) {
-    if (!data.lat || !data.lon || data.azimuth == null) {
-        console.warn('Invalid shoot data received:', data);
-        return;
-    }
-
-    this.updatePlayerState(data);
-
-    const shooter = this.players[data.shooter];
-    if (!shooter) {
-        console.warn(`Shooter with ID ${data.shooter} not found.`);
-        return;
-    }
-
-    console.log(`Shooter ${shooter.id} fired at lat: ${shooter.lat}, lon: ${shooter.lon}, azimuth: ${shooter.azimuth}`);
-
-    Object.values(this.players).forEach(target => {
-        if (target.id !== shooter.id && this.checkHit(shooter, target)) {
-            this.handleHit(shooter, target);
-        }
-    });
-}
-
 
     checkHit(shooter, target) {
+        console.log("Checking hit...");
+    
+        // Ensure the shooter and target have valid coordinates
+        if(!shooter.lat){
+            console.log("no cordinates for shooter");
+            return false;
+        }
         if (!shooter.lat || !shooter.lon || !target.lat || !target.lon) {
             console.log("Missing coordinates for shooter or target.");
             return false;
         }
-
+    
+        console.log("Shooter and target coordinates are valid.");
+    
+        // Calculate distance between players
         const distance = this.calculateDistance(
             shooter.lat, shooter.lon,
             target.lat, target.lon
         );
+        console.log(Distance between shooter and target: ${distance});
+    
+        // Calculate angle difference
         const bearingToTarget = this.calculateBearing(
             shooter.lat, shooter.lon,
             target.lat, target.lon
         );
         const angleDiff = Math.abs(shooter.azimuth - bearingToTarget);
-
-        console.log(`Distance: ${distance}, Angle Difference: ${angleDiff}`);
-
-        return distance < 10 && angleDiff < 360; // Example hit criteria
+        console.log(Bearing to target: ${bearingToTarget}, Angle difference: ${angleDiff});
+    
+        // Define hit criteria (example)
+        const isHit = distance < 10 && angleDiff < 360;
+        console.log(Is hit: ${isHit});
+        return isHit;
     }
-
+    
     handleHit(shooter, target) {
-        target.health -= 10;
-        console.log(`Target ${target.id} hit! Health: ${target.health}`);
-
-        if (target.health <= 0) {
-            target.health = 0;
-            target.isEliminated = true;
-            shooter.score += 100;
-            shooter.kills += 1;
-
-            console.log(`Player ${target.id} eliminated by ${shooter.id}`);
+        console.log(Handling hit: Shooter ${shooter.id} -> Target ${target.id});
+        
+        // Ensure both shooter and target exist
+        if (!this.players[shooter.id] || !this.players[target.id]) {
+            console.log('Shooter or target does not exist');
+            return;
         }
-
+        
+        // Reduce target's health
+        this.players[target.id].health -= 10;
+        console.log(Target ${target.id} health: ${this.players[target.id].health});
+        
+        // Check if target is eliminated
+        if (this.players[target.id].health <= 0) {
+            console.log(Player ${target.id} eliminated by ${shooter.id});
+            this.players[target.id].health = 0;
+            this.players[target.id].isEliminated = true;
+        
+            // Update shooter's score and kills
+            this.players[shooter.id].score += 100;
+            this.players[shooter.id].kills += 1;
+        }
+        
+        // Broadcast the hit to all clients
+        const hitMessage = {
+            type: 'hit',
+            shooter: shooter.id,
+            target: target.id,
+            health: this.players[target.id].health
+        };
+        this.server.clients.forEach(client => {
+            if (client.readyState === WebSocket.OPEN) {
+                client.send(JSON.stringify(hitMessage));
+            }
+        });
+        
+        // Broadcast updated game state
         this.broadcastGameState();
     }
+    
 
     calculateDistance(lat1, lon1, lat2, lon2) {
-        const R = 6371;
+        // Implement the Haversine formula or any other distance calculation
+        const R = 6371; // Radius of the Earth in km
         const dLat = this.degreesToRadians(lat2 - lat1);
         const dLon = this.degreesToRadians(lon2 - lon1);
-        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                  Math.cos(this.degreesToRadians(lat1)) * Math.cos(this.degreesToRadians(lat2)) *
-                  Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const a = 
+            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(this .degreesToRadians(lat1)) * Math.cos(this.degreesToRadians(lat2)) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return R * c;
+        console.log(R*c);
+        return R * c; // Distance in km
     }
 
     degreesToRadians(degrees) {
@@ -162,7 +204,8 @@ class GameServer {
         const x = Math.sin(dLon) * Math.cos(lat2);
         const y = Math.cos(lat1) * Math.sin(lat2) -
                   Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-        return (this.radiansToDegrees(Math.atan2(x, y)) + 360) % 360;
+        const initialBearing = Math.atan2(x, y);
+        return (this.radiansToDegrees(initialBearing) + 360) % 360; // Normalize to 0-360
     }
 
     radiansToDegrees(radians) {
@@ -172,9 +215,11 @@ class GameServer {
     broadcastGameState() {
         const state = {
             type: 'updatePlayers',
-            players: this.players
+            players: this.players,
+            powerups: this.powerups,
+            matchInProgress: this.matchInProgress
         };
-
+        console.log('Broadcasting game state:', state);
         const message = JSON.stringify(state);
         this.server.clients.forEach(client => {
             if (client.readyState === WebSocket.OPEN) {
@@ -182,7 +227,15 @@ class GameServer {
             }
         });
     }
+
+    startGameLoop() {
+        // Implement game loop logic if needed
+        setInterval(() => {
+            // Example: Update game state, spawn powerups, etc.
+        }, 1000); // Adjust interval as needed
+    }
 }
 
-const port = process.argv[2] || 8080;
+// Start the server
+const port = process.argv[2] || 8080; // Allow port to be set via command line
 new GameServer(port);
