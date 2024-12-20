@@ -64,15 +64,26 @@ class GameServer {
             delete this.players[socket.playerId];
         }
     }
+    updatePlayerState(data) {
+        if (this.players[data.id]) {
+            Object.assign(this.players[data.id], {
+                lat: data.lat,
+                lon: data.lon,
+                azimuth: data.azimuth,
+                health: data.health
+            });
+            this.broadcastGameState();
+        }
+    }
 
     handleShoot(data) {
         const shooter = this.players[data.shooter];
         if (!shooter) return;
-
+        updatePlayerState(data);
         // Update shooter location and azimuth at the moment of shooting
-        shooter.lat = data.lat;
-        shooter.lon = data.lon;
-        shooter.azimuth = data.azimuth;
+        // shooter.lat = data.lat;
+        // shooter.lon = data.lon;
+        // shooter.azimuth = data.azimuth;
 
         console.log(`Shooter ${shooter.id} fired at lat: ${shooter.lat}, lon: ${shooter.lon}, azimuth: ${shooter.azimuth}`);
 
