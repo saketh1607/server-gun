@@ -11,7 +11,7 @@ class GameServer {
         this.setupServerEvents();
         this.startGameLoop();
         
-        console.log("Game server running on port ${port}");
+        console.log(`Game server running on port ${port}`);
     }
 
     setupServerEvents() {
@@ -50,7 +50,7 @@ class GameServer {
 
     registerPlayer(socket, data) {
         const playerId = data.id;
-        console.log(Registering player with ID: ${playerId});
+        console.log(`Registering player with ID: ${playerId}`);
         socket.playerId = playerId;
         
         this.players[playerId] = {
@@ -104,10 +104,6 @@ class GameServer {
         console.log("Checking hit...");
     
         // Ensure the shooter and target have valid coordinates
-        if(!shooter.lat){
-            console.log("no cordinates for shooter");
-            return false;
-        }
         if (!shooter.lat || !shooter.lon || !target.lat || !target.lon) {
             console.log("Missing coordinates for shooter or target.");
             return false;
@@ -120,7 +116,7 @@ class GameServer {
             shooter.lat, shooter.lon,
             target.lat, target.lon
         );
-        console.log(Distance between shooter and target: ${distance});
+        console.log(`Distance between shooter and target: ${distance}`);
     
         // Calculate angle difference
         const bearingToTarget = this.calculateBearing(
@@ -128,16 +124,16 @@ class GameServer {
             target.lat, target.lon
         );
         const angleDiff = Math.abs(shooter.azimuth - bearingToTarget);
-        console.log(Bearing to target: ${bearingToTarget}, Angle difference: ${angleDiff});
+        console.log(`Bearing to target: ${bearingToTarget}, Angle difference: ${angleDiff}`);
     
         // Define hit criteria (example)
         const isHit = distance < 10 && angleDiff < 360;
-        console.log(Is hit: ${isHit});
+        console.log(`Is hit: ${isHit}`);
         return isHit;
     }
     
     handleHit(shooter, target) {
-        console.log(Handling hit: Shooter ${shooter.id} -> Target ${target.id});
+        console.log(`Handling hit: Shooter ${shooter.id} -> Target ${target.id}`);
         
         // Ensure both shooter and target exist
         if (!this.players[shooter.id] || !this.players[target.id]) {
@@ -147,11 +143,11 @@ class GameServer {
         
         // Reduce target's health
         this.players[target.id].health -= 10;
-        console.log(Target ${target.id} health: ${this.players[target.id].health});
+        console.log(`Target ${target.id} health: ${this.players[target.id].health}`);
         
         // Check if target is eliminated
         if (this.players[target.id].health <= 0) {
-            console.log(Player ${target.id} eliminated by ${shooter.id});
+            console.log(`Player ${target.id} eliminated by ${shooter.id}`);
             this.players[target.id].health = 0;
             this.players[target.id].isEliminated = true;
         
@@ -176,7 +172,6 @@ class GameServer {
         // Broadcast updated game state
         this.broadcastGameState();
     }
-    
 
     calculateDistance(lat1, lon1, lat2, lon2) {
         // Implement the Haversine formula or any other distance calculation
@@ -185,10 +180,9 @@ class GameServer {
         const dLon = this.degreesToRadians(lon2 - lon1);
         const a = 
             Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(this .degreesToRadians(lat1)) * Math.cos(this.degreesToRadians(lat2)) *
+            Math.cos(this.degreesToRadians(lat1)) * Math.cos(this.degreesToRadians(lat2)) *
             Math.sin(dLon / 2) * Math.sin(dLon / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        console.log(R*c);
         return R * c; // Distance in km
     }
 
