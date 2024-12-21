@@ -1,235 +1,246 @@
-const WebSocket = require('ws');
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Location Game</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: Arial, sans-serif; }
+        canvas { background: #1a1b2e; }
+        #gameInterface {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            pointer-events: none;
+        }
+        .stats {
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px;
+            margin: 10px;
+            border-radius: 5px;
+            position: absolute;
+        }
+        #playerStats { top: 10px; left: 10px; }
+        #gameInfo { top: 10px; right: 10px; }
+        #leaderboard { top: 10px; left: 50%; transform: translateX(-50%); }
+        .health-bar {
+            width: 200px;
+            height: 20px;
+            background: #333;
+            margin: 5px 0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .health-bar div {
+            height: 100%;
+            background: linear-gradient(90deg, #ff0000, #ff4444);
+            transition: width 0.3s;
+        }
+        #shoot, #powerUp {
+            position: fixed;
+            bottom: 20px;
+            background: #ff4444;
+            border: none;
+            color: white;
+            padding: 15px 30px;
+            border-radius: 25px;
+            cursor: pointer;
+            pointer-events: auto;
+        }
+        #shoot { right: 20px; }
+        #powerUp { left: 20px; background: #4CAF50; }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="gameInterface">
+        <div id="playerStats" class="stats">
+            <div>Health: <div class="health-bar"><div id="healthBar"></div></div></div>
+            <div>Score: <span id="scoreDisplay">0</span></div>
+            <div>Rank: <span id="rankDisplay">Rookie</span></div>
+        </div>
+        <div id="gameInfo" class="stats">
+            <div>Players Online: <span id="playerCount">0</span></div>
+            <div>Match Time: <span id="matchTime">05:00</span></div>
+        </div>
+        <div id="leaderboard" class="stats">
+            <h3>Top Players</h3>
+            <div id="leaderboardList"></div>
+        </div>
+        <button id="shoot">SHOOT</button>
+        <button id="powerUp">POWER UP</button>
+    </div>
+    <script>
+        class Game {
+            constructor() {
+                this.canvas = document.getElementById('gameCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.playerId = Math.random().toString(36).substr(2, 9);
+                this.players = {};
+                this.health = 100;
+                this.score = 0;
+                this.rank = 'Rookie';
+                this.effects = [];
+                this.matchTime = 300; // 5 minutes
 
-class GameServer {
-    constructor(port) {
-        this.server = new WebSocket.Server({ port: port });
-        this.players = {};
-        this.powerups = [];
-        this.matchInProgress = false;
-        this.matchDuration = 300; // 5 minutes
-        
-        this.setupServerEvents();
-        this.startGameLoop();
-        
-        console.log(`Game server running on port ${port}`);
-    }
+                this.setupCanvas();
+                this.setupWebSocket();
+                this.setupControls();
+                this.setupGameLoop();
+            }
 
-    setupServerEvents() {
-        this.server.on('connection', (socket) => {
-            console.log('New client connected');
-            
-            socket.on('message', (message) => {
-                try {
-                    const data = JSON.parse(message);
-                    this.handlePlayerMessage(socket, data);
-                } catch (error) {
-                    console.error('Error handling message:', error);
+            setupCanvas() {
+                const resize = () => {
+                    this.canvas.width = window.innerWidth;
+                    this.canvas.height = window.innerHeight;
+                };
+                window.addEventListener('resize', resize);
+                resize();
+            }
+
+            setupWebSocket() {
+                this.socket = new WebSocket("ws://192.168.0.103:8080");
+                this.socket.onopen = () => {
+                    this.socket.send(JSON.stringify({ type: 'register', id: this.playerId }));
+                };
+                this.socket.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    this.handleServerMessage(data);
+                };
+            }
+
+            setupControls() {
+                navigator.geolocation.watchPosition(
+                    (position) => {
+                        this.position = {
+                            lat: position.coords.latitude,
+                            lon: position.coords.longitude
+                        };
+                        this.sendUpdate();
+                    },
+                    (error) => console.error('GPS Error:', error),
+                    { enableHighAccuracy: true }
+                );
+
+                window.addEventListener('deviceorientationabsolute', (event) => {
+                    if (event.alpha !== null) {
+                        this.azimuth = event.alpha;
+                        this.sendUpdate();
+                    }
+                });
+
+                document.getElementById('shoot').addEventListener('click', () => this.shoot());
+                document.getElementById('powerUp').addEventListener('click', () => this.activatePowerUp());
+            }
+
+            setupGameLoop() {
+                const gameLoop = () => {
+                    this.update();
+                    this.render();
+                    requestAnimationFrame(gameLoop);
+                };
+                gameLoop();
+            }
+
+            update() {
+                this.effects = this.effects.filter(effect => effect.lifetime > 0);
+                this.matchTime = Math.max(0, this.matchTime - 1 / 60);
+                const minutes = Math.floor(this.matchTime / 60).toString().padStart(2, '0');
+                const seconds = Math.floor(this.matchTime % 60).toString().padStart(2, '0');
+                document.getElementById('matchTime').textContent = `${minutes}:${seconds}`;
+                document.getElementById('healthBar').style.width = `${this.health}%`;
+                document.getElementById('scoreDisplay').textContent = this.score;
+                document.getElementById('rankDisplay').textContent = this.rank;
+                document.getElementById('playerCount').textContent = Object.keys(this.players).length;
+            }
+
+            render() {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                this.drawGrid();
+                Object.entries(this.players).forEach(([id, player]) => this.drawPlayer(player, id === this.playerId));
+                this.effects.forEach(effect => this.drawEffect(effect));
+            }
+
+            drawGrid() {
+                this.ctx.strokeStyle = '#2a2a4a';
+                const gridSize = 50;
+                for (let x = 0; x < this.canvas.width; x += gridSize) {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x, 0);
+                    this.ctx.lineTo(x, this.canvas.height);
+                    this.ctx.stroke();
                 }
-            });
-
-            socket.on('close', () => {
-                this.handlePlayerDisconnect(socket);
-            });
-        });
-    }
-
-    handlePlayerMessage(socket, data) {
-        console.log('Message received:', data);
-        switch (data.type) {
-            case 'register':
-                this.registerPlayer(socket, data);
-                break;
-            case 'update':
-                this.updatePlayerState(data);
-                break;
-            case 'shoot':
-                this.handleShoot(data);
-                break;
-        }
-    }
-
-    registerPlayer(socket, data) {
-        const playerId = data.id;
-        console.log(`Registering player with ID: ${playerId}`);
-        socket.playerId = playerId;
-        
-        this.players[playerId] = {
-            id: playerId,
-            socket: socket,
-            lat: null,
-            lon: null,
-            azimuth: null,
-            health: 100,
-            score: 0,
-            kills: 0
-        };
-        console.log('Players after registration:', this.players);
-        this.broadcastGameState();
-    }
-
-    updatePlayerState(data) {
-        if (this.players[data.id]) {
-            Object.assign(this.players[data.id], {
-                lat: data.lat,
-                lon: data.lon,
-                azimuth: data.azimuth,
-                health: data.health
-            });
-            this.broadcastGameState();
-        }
-    }
-
-    handlePlayerDisconnect(socket) {
-        if (socket.playerId && this.players[socket.playerId]) {
-            console.log('Player disconnected:', socket.playerId);
-            delete this.players[socket.playerId];
-            this.broadcastGameState();
-        }
-    }
-
-    handleShoot(data) {
-        const shooter = this.players[data.shooter];
-        if (!shooter) return;
-        // Check for hits on other players
-        Object.values(this.players).forEach(target => {
-            if (target.id !== shooter.id) {
-                if (this.checkHit(shooter, target)) {
-                    this.handleHit(shooter, target);
+                for (let y = 0; y < this.canvas.height; y += gridSize) {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(0, y);
+                    this.ctx.lineTo(this.canvas.width, y);
+                    this.ctx.stroke();
                 }
             }
-        });
-    }
 
-    checkHit(shooter, target) {
-        console.log("Checking hit...");
-    
-        // Ensure the shooter and target have valid coordinates
-        if (!shooter.lat || !shooter.lon || !target.lat || !target.lon) {
-            console.log("Missing coordinates for shooter or target.");
-            return false;
-        }
-    
-        console.log("Shooter and target coordinates are valid.");
-    
-        // Calculate distance between players
-        const distance = this.calculateDistance(
-            shooter.lat, shooter.lon,
-            target.lat, target.lon
-        );
-        console.log(`Distance between shooter and target: ${distance}`);
-    
-        // Calculate angle difference
-        const bearingToTarget = this.calculateBearing(
-            shooter.lat, shooter.lon,
-            target.lat, target.lon
-        );
-        const angleDiff = Math.abs(shooter.azimuth - bearingToTarget);
-        console.log(`Bearing to target: ${bearingToTarget}, Angle difference: ${angleDiff}`);
-    
-        // Define hit criteria (example)
-        const isHit = distance < 10 && angleDiff < 360;
-        console.log(`Is hit: ${isHit}`);
-        return isHit;
-    }
-    
-    handleHit(shooter, target) {
-        console.log(`Handling hit: Shooter ${shooter.id} -> Target ${target.id}`);
-        
-        // Ensure both shooter and target exist
-        if (!this.players[shooter.id] || !this.players[target.id]) {
-            console.log('Shooter or target does not exist');
-            return;
-        }
-        
-        // Reduce target's health
-        this.players[target.id].health -= 10;
-        console.log(`Target ${target.id} health: ${this.players[target.id].health}`);
-        
-        // Check if target is eliminated
-        if (this.players[target.id].health <= 0) {
-            console.log(`Player ${target.id} eliminated by ${shooter.id}`);
-            this.players[target.id].health = 0;
-            this.players[target.id].isEliminated = true;
-        
-            // Update shooter's score and kills
-            this.players[shooter.id].score += 100;
-            this.players[shooter.id].kills += 1;
-        }
-        
-        // Broadcast the hit to all clients
-        const hitMessage = {
-            type: 'hit',
-            shooter: shooter.id,
-            target: target.id,
-            health: this.players[target.id].health
-        };
-        this.server.clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN) {
-                client.send(JSON.stringify(hitMessage));
+            drawPlayer(player, isCurrentPlayer) {
+                if (!player.lat || !player.lon) return;
+                const x = (player.lon - this.position.lon) * 1000000 + this.canvas.width / 2;
+                const y = (this.position.lat - player.lat) * 1000000 + this.canvas.height / 2;
+                this.ctx.beginPath();
+                this.ctx.arc(x, y, 20, 0, Math.PI * 2);
+                this.ctx.fillStyle = isCurrentPlayer ? '#4CAF50' : '#FF5722';
+                this.ctx.fill();
             }
-        });
-        
-        // Broadcast updated game state
-        this.broadcastGameState();
-    }
 
-    calculateDistance(lat1, lon1, lat2, lon2) {
-        // Implement the Haversine formula or any other distance calculation
-        const R = 6371; // Radius of the Earth in km
-        const dLat = this.degreesToRadians(lat2 - lat1);
-        const dLon = this.degreesToRadians(lon2 - lon1);
-        const a = 
-            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(this.degreesToRadians(lat1)) * Math.cos(this.degreesToRadians(lat2)) *
-            Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return R * c; // Distance in km
-    }
-
-    degreesToRadians(degrees) {
-        return degrees * (Math.PI / 180);
-    }
-
-    calculateBearing(lat1, lon1, lat2, lon2) {
-        const dLon = this.degreesToRadians(lon2 - lon1);
-        lat1 = this.degreesToRadians(lat1);
-        lat2 = this.degreesToRadians(lat2);
-
-        const x = Math.sin(dLon) * Math.cos(lat2);
-        const y = Math.cos(lat1) * Math.sin(lat2) -
-                  Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-        const initialBearing = Math.atan2(x, y);
-        return (this.radiansToDegrees(initialBearing) + 360) % 360; // Normalize to 0-360
-    }
-
-    radiansToDegrees(radians) {
-        return radians * (180 / Math.PI);
-    }
-
-    broadcastGameState() {
-        const state = {
-            type: 'updatePlayers',
-            players: this.players,
-            powerups: this.powerups,
-            matchInProgress: this.matchInProgress
-        };
-        console.log('Broadcasting game state:', state);
-        const message = JSON.stringify(state);
-        this.server.clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN) {
-                client.send(message);
+            drawEffect(effect) {
+                const alpha = effect.lifetime / effect.maxLifetime;
+                this.ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+                this.ctx.beginPath();
+                this.ctx.moveTo(effect.x1, effect.y1);
+                this.ctx.lineTo(effect.x2, effect.y2);
+                this.ctx.stroke();
             }
-        });
-    }
 
-    startGameLoop() {
-        // Implement game loop logic if needed
-        setInterval(() => {
-            // Example: Update game state, spawn powerups, etc.
-        }, 1000); // Adjust interval as needed
-    }
-}
+            handleServerMessage(data) {
+                if (data.type === 'updatePlayers') this.players = data.players;
+                if (data.type === 'hit' && data.target === this.playerId) this.health = Math.max(0, this.health - 10);
+            }
 
-// Start the server
-const port = process.argv[2] || 8080; // Allow port to be set via command line
-new GameServer(port);
+            sendUpdate() {
+                if (this.socket.readyState === WebSocket.OPEN) {
+                    this.socket.send(JSON.stringify({
+                        type: 'update',
+                        id: this.playerId,
+                        lat: this.position?.lat,
+                        lon: this.position?.lon,
+                        azimuth: this.azimuth,
+                        health: this.health
+                    }));
+                }
+            }
+
+            shoot() {
+                if (this.socket.readyState === WebSocket.OPEN) {
+                    const centerX = this.canvas.width / 2;
+                    const centerY = this.canvas.height / 2;
+                    const angle = this.azimuth * Math.PI / 180;
+                    this.effects.push({
+                        type: 'shoot',
+                        x1: centerX,
+                        y1: centerY,
+                        x2: centerX + Math.cos(angle) * 1000,
+                        y2: centerY + Math.sin(angle) * 1000,
+                        lifetime: 500,
+                        maxLifetime: 500
+                    });
+                }
+            }
+
+            activatePowerUp() {
+                this.health = Math.min(100, this.health + 20);
+                this.score += 50;
+            }
+        }
+
+        window.addEventListener('load', () => new Game());
+    </script>
+</body>
+</html>
