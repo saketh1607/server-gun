@@ -109,28 +109,31 @@ class GameServer {
             return false;
         }
     
-        console.log("Shooter and target coordinates are valid.");
-    
         // Calculate distance between players
         const distance = this.calculateDistance(
             shooter.lat, shooter.lon,
             target.lat, target.lon
         );
-        console.log(`Distance between shooter and target: ${distance}`);
+        console.log(`Distance between shooter and target: ${distance} km`);
     
         // Calculate angle difference
         const bearingToTarget = this.calculateBearing(
             shooter.lat, shooter.lon,
             target.lat, target.lon
         );
-        const angleDiff = Math.abs(shooter.azimuth - bearingToTarget);
-        console.log(`Bearing to target: ${bearingToTarget}, Angle difference: ${angleDiff}`);
+        const angleDiff = Math.abs((shooter.azimuth - bearingToTarget + 360) % 360);
+        const shortestAngleDiff = Math.min(angleDiff, 360 - angleDiff);
+        console.log(`Bearing to target: ${bearingToTarget}, Shortest angle difference: ${shortestAngleDiff}`);
     
-        // Define hit criteria (example)
-        const isHit = angleDiff > 130&& angleDiff < 250;
-        console.log(`Is hit: ${isHit}`);
+        // Define hit criteria
+        const isWithinRange = distance * 1000 < 10; // 10 meters
+        const isAligned = shortestAngleDiff >= 175 && shortestAngleDiff <= 185; // Tight range for "facing"
+        const isHit = isWithinRange && isAligned;
+    
+        console.log(`Is within range: ${isWithinRange}, Is aligned: ${isAligned}, Is hit: ${isHit}`);
         return isHit;
     }
+    
     
     handleHit(shooter, target) {
         console.log(`Handling hit: Shooter ${shooter.id} -> Target ${target.id}`);
