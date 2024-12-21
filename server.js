@@ -127,7 +127,7 @@ class GameServer {
         console.log(`Bearing to target: ${bearingToTarget}, Angle difference: ${angleDiff}`);
     
         // Define hit criteria (example)
-        const isHit = distance < 10 && angleDiff > 165 && angleDiff < 220;
+        const isHit = angleDiff > 130&& angleDiff < 250;
         console.log(`Is hit: ${isHit}`);
         return isHit;
     }
